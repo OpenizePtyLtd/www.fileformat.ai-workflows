@@ -24,74 +24,33 @@ jobs:
     steps:
 
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v2
       with:
-        repository: OpenizePtyLtd/fileformat.ai
-        token: ${{ secrets.REPO_TOKEN }}
-        submodules: true  # Fetch Hugo themes
-        fetch-depth: 0    # Fetch all history for .GitInfo and .Lastmod
+          repository: OpenizePtyLtd/fileformat.ai
+          token: ${{ secrets.REPO_TOKEN }}
+          submodules: true  # Fetch Hugo themes
+          fetch-depth: 0    # Fetch all history for .GitInfo and .Lastmod
 
     - name: Setup Hugo
       uses: peaceiris/actions-hugo@v2
       with:
-          hugo-version: '0.125.7'
-          extended: true
-
-    - name: Install Dependencies
-      run: |
-        npm install -D --save autoprefixer
-        npm install -D --save postcss-cli
+          hugo-version: '0.110.0'
 
     - name: Build Site
-      run: hugo --minify --environment production
-
-    - name: Generate Build Info
-      run: |
-        mkdir -p public
-        cat > public/build-info.txt << 'EOF'
-        Branch: ${{ github.ref_name }}
-        Commit: ${{ github.sha }}
-        Author: ${{ github.actor }}
-        Datetime: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
-        EOF
-
-    - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: public-files
-        path: public/
-        retention-days: 5
-
-  # Deploy job - Deploys the built site to Ceph
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    
-    steps:
-
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        repository: OpenizePtyLtd/fileformat.ai
-        token: ${{ secrets.REPO_TOKEN }}
-        submodules: true  # Fetch Hugo themes
-        fetch-depth: 0    # Fetch all history for .GitInfo and .Lastmod
-
-    - name: Setup Hugo
-      uses: peaceiris/actions-hugo@v2
-      with:
-          hugo-version: '0.125.7'
-          extended: true
-
-    - name: Download Build Artifacts
-      uses: actions/download-artifact@v4
-      with:
-        name: public-files
-        path: public/
+      run: hugo --environment production -b "https://www.fileformat.ai/" --minify --cleanDestinationDir 
 
     - name: Deploy to Ceph Production
       run: |
-        hugo deploy --target production-ceph --environment production --force --maxDeletes -1
+        hugo deploy --target production-ceph --environment production --maxDeletes -1 --verbose
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_ACCESS_KEY }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_KEY }}
+
+    - name: Purge Bunny CDN cache
+      if: github.event_name != 'pull_request'
+      env:
+        BUNNYNET_ACCESSKEY: ${{ secrets.BUNNYNET_ACCESSKEY }}
+      run: |
+        curl --version
+        echo Purging https://www.fileformat.ai
+        curl -siG -H "X-Api-Key: $BUNNYNET_ACCESSKEY" --data-urlencode "url=https://www.fileformat.ai/*" "https://api.dynabic.com/bn/purge?async=true"
